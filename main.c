@@ -32,6 +32,16 @@ int _num_lines=0;
 #define SLEEP_UI 200
 #define SLEEP_DATA 10000
 
+/* Game struct and list*/
+#define MAX_TEAM_LEN 140
+typedef struct{
+  char team_home[MAX_TEAM_LEN];
+  char team_away[MAX_TEAM_LEN];
+  char game_id[MAX_TEAM_LEN];
+}t_game;
+t_game *_games;
+int _num_games;
+
 /**
  * Description:
  * Gets the current system time in miliseconds
@@ -107,6 +117,46 @@ void printCommentary(WINDOW *win_com)
 
 /**
  * Description:
+ * Populates a list of game structs from the given competition
+ */
+void loadGames()
+{
+
+  FILE *fp;
+  char path[1035];
+  int g_cnt=0;
+
+  /* Open the command for reading. */
+  fp = popen("php getGames.php", "r");
+  if (fp == NULL) {
+    printf("Failed to run getGames command\n" );
+    return;
+  }
+
+  /* Read the number of game structs (first line of output) */
+  fgets(path, sizeof(path)-1, fp);
+  sscanf(path,"%d",&_num_games);
+  _games=calloc(_num_games,sizeof(t_game));
+  printf("callocd %d",_num_games);
+  /* Read the output a line at a time and store it in the buffer */
+  while (fgets(path, sizeof(path)-1, fp) != NULL){
+    strcpy(_games[g_cnt].team_home, path);
+    fgets(path, sizeof(path)-1, fp);
+    strcpy(_games[g_cnt].team_away, path);
+    fgets(path, sizeof(path)-1, fp);
+    strcpy(_games[g_cnt].game_id, path);
+    puts("gamedone");
+    g_cnt++;
+  }
+  puts("about to close");
+  /* close */
+  pclose(fp);
+  puts("closed");
+
+}
+
+/**
+ * Description:
  * Calls all functions requried to update and handle the ncurses interface
  */
 void handleUI(WINDOW *win_com, WINDOW *win_games){
@@ -167,6 +217,7 @@ int main(int argc, char** argv)
   WINDOW *win_com, *win_games, *wins[2];
 
   _com_lines = calloc(MAX_BUFF_LEN, sizeof(char*) );
+  loadGames();
 
   /*Ncurses init and config*/
   initscr();
@@ -183,7 +234,7 @@ int main(int argc, char** argv)
   /* Setup colours */
   start_color();
   init_pair(1,COLOR_BLUE,COLOR_BLACK);
-  attron(COLOR_PAIR(1));
+  wattron(win_com,COLOR_PAIR(1));
  
   /*Start UI and data threads*/
   pthread_create(&thrd_data, NULL, getEvents_thrd, NULL);
@@ -194,7 +245,7 @@ int main(int argc, char** argv)
   pthread_join(thrd_data,NULL);
 
   /* Clean up */
-  attroff(COLOR_PAIR(1));
+  wattroff(win_com,COLOR_PAIR(1));
   endwin();
   return 0;
 }

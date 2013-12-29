@@ -1,2 +1,0 @@
-Need interface to select match/league (possibly ncurses based)
-Need to parse game stats from game pages (score - shots and posession)

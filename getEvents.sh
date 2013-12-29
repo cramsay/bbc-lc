@@ -1,7 +1,7 @@
 #!/bin/bash
 
 #Get raw live commentary page
-wget --no-verbose -O lc.html  http://polling.bbc.co.uk/sport/shared/football/oppm/live-text-commentary/EFBO697044 &> /dev/null
+wget --no-verbose -O lc.html  http://polling.bbc.co.uk/sport/shared/football/oppm/live-text-commentary/$1 &> /dev/null
 
 #Process the raw html
 #Remove extra time tags (makes splitting events much easier)
