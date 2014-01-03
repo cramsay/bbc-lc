@@ -5,6 +5,8 @@
 #include <ncurses.h>
 #include <pthread.h>
 #include <sys/time.h>
+#include <sys/ioctl.h>
+#include <signal.h>
  
 /*Milisecond based timing macros*/
 static double _startMS;
@@ -17,10 +19,14 @@ double getMilis();
 int _MAX_Y, _MAX_X;
 #define GET_MAX_WIN_SZ(w) getmaxyx(w,_MAX_Y,_MAX_X)
 
+/* String format constants */
+#define FMT_GAME "%s vs %s"
+
 /*Cross-thread variables needed between the UI and the data fetching*/
 volatile int _start_line=0; /*For commentary text scrolling*/
 volatile int _cur_game=0;
 volatile int _kill=0;
+volatile int _resize=0;
 
 /*Commentary text buffer*/
 #define MAX_BUFF_LEN 1024
@@ -29,7 +35,7 @@ char **_com_lines;
 int _num_lines=0;
 
 /* Thread timing constants (in ms) */
-#define SLEEP_UI 200
+#define SLEEP_UI 50
 #define SLEEP_DATA 10000
 
 /* Game struct and list*/
@@ -66,7 +72,8 @@ void getEvents()
   int line_count=0;
 
   /* Open the command for reading. */
-  fp = popen("bash getEvents.sh", "r");
+  sprintf(path,"bash getEvents.sh %s",_games[_cur_game].game_id);
+  fp = popen(path, "r");
   if (fp == NULL) {
     printf("Failed to run command\n" );
     return;
@@ -77,6 +84,7 @@ void getEvents()
     free(_com_lines[_num_lines-1]);
 
   /* Read the output a line at a time and store it in the buffer */
+  path[0]='\0';
   while (fgets(path, sizeof(path)-1, fp) != NULL && line_count<MAX_BUFF_LEN){
     _com_lines[line_count] = calloc(BUFF_WIDTH,sizeof(char));
     strcpy(_com_lines[line_count++],path);
@@ -117,6 +125,36 @@ void printCommentary(WINDOW *win_com)
 
 /**
  * Description:
+ * Prints out the select list of games to the given
+ * ncurses window
+ */
+void printGamesList(WINDOW *win_games)
+{
+  int i,x=1,y=1,hglt=_cur_game;/*hglt is a snapshot of _cur_game
+                                 Really don't want the highlighted game
+                                 changing mid-function call*/
+
+  for(i=0;i<_num_games;i++){
+    
+    if(i==hglt){
+      wattroff(win_games,COLOR_PAIR(1));
+      wattron(win_games,COLOR_PAIR(2));
+    }
+
+    mvwprintw(win_games,y,x,FMT_GAME,
+        _games[i].team_home,
+        _games[i].team_away);
+    y+=3;
+
+    if(i==hglt){
+      wattron(win_games,COLOR_PAIR(1));
+      wattroff(win_games,COLOR_PAIR(2));
+    }
+  }
+}
+
+/**
+ * Description:
  * Populates a list of game structs from the given competition
  */
 void loadGames()
@@ -134,7 +172,9 @@ void loadGames()
   }
 
   /* Read the number of game structs (first line of output) */
-  fgets(path, sizeof(path)-1, fp);
+  if(NULL == fgets(path, sizeof(path)-1, fp))
+    puts("Empty games stream");
+
   sscanf(path,"%d",&_num_games);
   _games=calloc(_num_games,sizeof(t_game));
   printf("callocd %d",_num_games);
@@ -148,10 +188,8 @@ void loadGames()
     puts("gamedone");
     g_cnt++;
   }
-  puts("about to close");
   /* close */
   pclose(fp);
-  puts("closed");
 
 }
 
@@ -161,11 +199,33 @@ void loadGames()
  */
 void handleUI(WINDOW *win_com, WINDOW *win_games){
   int ch;
+  MEVENT m_event;
+
+  /* Resize the windows if needed */
+  if(_resize){
+    struct winsize w;
+    ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
+
+    mvwin(win_com, 0, w.ws_col/3);
+    mvwin(win_games, 0, 0);
+    wresize(win_com,w.ws_row, w.ws_col*2/3);
+    wresize(win_games,w.ws_row, w.ws_col/3);
+    wclear(win_games);
+    wclear(win_com);
+
+    endwin();
+    refresh();
+
+    _resize=0;
+  }
 
   /* Update commentary text */
   printCommentary(win_com);
 
-  /* Refresh main window*/
+  /* Update game list*/
+  printGamesList(win_games);
+
+  /* Refresh windows*/
   box(win_com,0,0);
   wrefresh(win_com);
   box(win_games,0,0);
@@ -173,9 +233,20 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
   refresh();
 
   /* Handle up/down keys */
+  
   while( ERR != ( ch=getch() ) ){/*while there is a keypress to handle...*/
-
     switch(ch){
+
+    case KEY_MOUSE:
+      if(getmouse(&m_event)==OK)
+      {
+        if(m_event.bstate & BUTTON4_PRESSED) /*Scroll whell up*/
+          _start_line=_start_line==0?0:_start_line-1;
+        else if(m_event.bstate & BUTTON2_PRESSED) /*Scroll whell down*/
+          _start_line=_start_line+1;
+      }
+      break;
+
     case KEY_UP:
       _start_line=_start_line==0?0:_start_line-1;
       break;
@@ -184,6 +255,20 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
       _start_line=_start_line+1;
       break;
     
+    case KEY_PPAGE:
+      if(_num_games)
+        _cur_game=_cur_game==0?_num_games-1:_cur_game-1;
+      getEvents();
+      _start_line=0;
+      break;
+      
+    case KEY_NPAGE:
+      _cur_game++;
+      _cur_game=_cur_game==_num_games?0:_cur_game;
+      getEvents();
+      _start_line=0;
+      break;
+
     case 'q':
       _kill=1;
       printw("Stopping all threads... Could take up to %d seconds"
@@ -211,6 +296,16 @@ void *handleUI_thrd(void *com){
   return NULL;
 }
 
+/**
+ * Description:
+ * Sets a 'terminal resized' flag.
+ * Called using <signal.h>
+ */
+void resizeHandler(int sig)
+{
+   _resize=1;
+}
+
 int main(int argc, char** argv)
 {
   pthread_t thrd_data,thrd_ui;
@@ -224,6 +319,8 @@ int main(int argc, char** argv)
   cbreak();             /*Don't echo user input with getch*/
   keypad(stdscr, TRUE); /*Lets us use the func keys and arrows*/
   nodelay(stdscr, TRUE);/*Makes getch non-blocking*/
+  curs_set(0);          /*Don't show cursor*/
+  signal(SIGWINCH,resizeHandler);
 
   /* Window inits */
   GET_MAX_WIN_SZ(stdscr);
@@ -234,7 +331,9 @@ int main(int argc, char** argv)
   /* Setup colours */
   start_color();
   init_pair(1,COLOR_BLUE,COLOR_BLACK);
+  init_pair(2,COLOR_GREEN,COLOR_BLACK);
   wattron(win_com,COLOR_PAIR(1));
+  wattron(win_games,COLOR_PAIR(1));
  
   /*Start UI and data threads*/
   pthread_create(&thrd_data, NULL, getEvents_thrd, NULL);
@@ -245,7 +344,6 @@ int main(int argc, char** argv)
   pthread_join(thrd_data,NULL);
 
   /* Clean up */
-  wattroff(win_com,COLOR_PAIR(1));
   endwin();
   return 0;
 }
