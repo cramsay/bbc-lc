@@ -1,6 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include <ctype.h>
 #include <unistd.h>
 #include <ncurses.h>
 #include <pthread.h>
@@ -27,6 +28,7 @@ volatile int _start_line=0; /*For commentary text scrolling*/
 volatile int _cur_game=0;
 volatile int _kill=0;
 volatile int _resize=0;
+volatile int _getting_data=0;
 
 /*Commentary text buffer*/
 #define MAX_BUFF_LEN 1024
@@ -35,7 +37,7 @@ char **_com_lines;
 int _num_lines=0;
 
 /* Thread timing constants (in ms) */
-#define SLEEP_UI 50
+#define SLEEP_UI 100
 #define SLEEP_DATA 10000
 
 /* Game struct and list*/
@@ -62,6 +64,31 @@ double getMilis()
 
 /**
  * Description:
+ * Helper function to trim leading whitespace from a char*
+ * Credit where credit is due...
+ * See Philip's answer @ http://stackoverflow.com/questions/656542/trim-a-string-in-c  
+ */
+char *trim(char *s) {
+  size_t len;
+  char *cur;
+
+  if(s && *s) {
+          len = strlen(s);
+          cur = s;
+
+          while(*cur && isspace(*cur))
+                  ++cur, --len;
+
+          if(s != cur)
+                  memmove(s, cur, len + 1);
+
+  }
+
+  return s;
+}
+
+/**
+ * Description:
  * Prints out the given game's live commentary to the standard window.
  * This is mainly just a wrapper around the getEvents bash script.
  */
@@ -72,7 +99,7 @@ void getEvents()
   int line_count=0;
 
   /* Open the command for reading. */
-  sprintf(path,"bash getEvents.sh %s",_games[_cur_game].game_id);
+  sprintf(path,"php getEvents.php %s",_games[_cur_game].game_id);
   fp = popen(path, "r");
   if (fp == NULL) {
     printf("Failed to run command\n" );
@@ -104,7 +131,9 @@ void getEvents()
 void *getEvents_thrd(void *arg){
   while(!_kill){
     WAIT_START();
+    _getting_data=1;
     getEvents();
+    _getting_data=0;
     WAIT_FOR(SLEEP_DATA);
   }
   return NULL;
@@ -117,9 +146,26 @@ void *getEvents_thrd(void *arg){
  */
 void printCommentary(WINDOW *win_com)
 {
-  int line_no=_start_line,x=1,y=1;
+  int line_no=0,x=1,y=1,text_line=0;
+  char *buf;
+
   for(;line_no<_num_lines;line_no++){
-    mvwprintw(win_com,y++,x,"%s",_com_lines[line_no]);
+
+    buf =  trim(_com_lines[line_no]);
+    if(0==strcmp(buf,"EVENT_START\n")){
+      wattroff(win_com,COLOR_PAIR(1));
+      wattron(win_com,COLOR_PAIR(2));
+    }
+    else if(0==strcmp( buf,"EVENT_END\n")){
+      wattron(win_com,COLOR_PAIR(1));
+      wattroff(win_com,COLOR_PAIR(2));
+    }
+
+    else{
+      if(text_line>=_start_line)
+        mvwprintw(win_com,y++,x,"%s",_com_lines[line_no]);
+      text_line++;
+    }
   }
 }
 
@@ -210,27 +256,30 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
     mvwin(win_games, 0, 0);
     wresize(win_com,w.ws_row, w.ws_col*2/3);
     wresize(win_games,w.ws_row, w.ws_col/3);
-    wclear(win_games);
-    wclear(win_com);
-
     endwin();
     refresh();
 
     _resize=0;
   }
 
-  /* Update commentary text */
-  printCommentary(win_com);
+  if(!_getting_data){
+    /* Clear windows */
+    wclear(win_games);
+    wclear(win_com);
 
-  /* Update game list*/
-  printGamesList(win_games);
+    /* Update commentary text */
+    printCommentary(win_com);
 
-  /* Refresh windows*/
-  box(win_com,0,0);
-  wrefresh(win_com);
-  box(win_games,0,0);
-  wrefresh(win_games);
-  refresh();
+    /* Update game list*/
+    printGamesList(win_games);
+
+    /* Refresh windows*/
+    box(win_com,0,0);
+    wrefresh(win_com);
+    box(win_games,0,0);
+    wrefresh(win_games);
+    refresh();
+  }
 
   /* Handle up/down keys */
   
