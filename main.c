@@ -7,7 +7,6 @@
 #include <pthread.h>
 #include <sys/time.h>
 #include <sys/ioctl.h>
-#include <signal.h>
  
 /*Milisecond based timing macros*/
 static double _startMS;
@@ -241,13 +240,9 @@ void loadGames()
 
 /**
  * Description:
- * Calls all functions requried to update and handle the ncurses interface
+ * Resizes the windows to fit a new terminal size
  */
-void handleUI(WINDOW *win_com, WINDOW *win_games){
-  int ch;
-
-  /* Resize the windows if needed */
-  if(_resize){
+void resize_w(WINDOW *win_com, WINDOW *win_games){
     struct winsize w;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
 
@@ -257,8 +252,14 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
     mvwin(win_games, 0, 0);
 
     endwin();
-    _resize=0;
-  }
+}
+
+/**
+ * Description:
+ * Calls all functions requried to update and handle the ncurses interface
+ */
+void handleUI(WINDOW *win_com, WINDOW *win_games){
+  int ch;
 
   if(!_getting_data){
     /* Clear windows */
@@ -280,7 +281,6 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
   }
 
   /* Handle up/down keys */
-  
   while( ERR != ( ch=getch() ) ){/*while there is a keypress to handle...*/
     switch(ch){
 
@@ -304,6 +304,10 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
       _cur_game=_cur_game==_num_games?0:_cur_game;
       getEvents();
       _start_line=0;
+      break;
+
+    case KEY_RESIZE: /* Resize windows */
+      resize_w(win_com,win_games);
       break;
 
     case 'q':
@@ -333,16 +337,6 @@ void *handleUI_thrd(void *com){
   return NULL;
 }
 
-/**
- * Description:
- * Sets a 'terminal resized' flag.
- * Called using <signal.h>
- */
-void resizeHandler(int sig)
-{
-   _resize=1;
-}
-
 int main(int argc, char** argv)
 {
   pthread_t thrd_data,thrd_ui;
@@ -357,7 +351,6 @@ int main(int argc, char** argv)
   keypad(stdscr, TRUE); /*Lets us use the func keys and arrows*/
   nodelay(stdscr, TRUE);/*Makes getch non-blocking*/
   curs_set(0);          /*Don't show cursor*/
-  signal(SIGWINCH,resizeHandler);
 
   /* Window inits */
   GET_MAX_WIN_SZ(stdscr);
