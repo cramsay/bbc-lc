@@ -1,15 +1,14 @@
 <?php 
-//include_path='.:/usr/share/pear';
 include("simple_html_dom.php");
 
 // Create DOM from URL or file
-$html = file_get_html('http://www.bbc.co.uk/sport/shared/football/live-scores/matches/118996176/yesterday');
+$html = file_get_html('http://www.bbc.co.uk/sport/shared/football/live-scores/matches/118996176/today');
 
 $results=array();
 
 // Find all fixtures
 foreach($html->find('tr') as $row){
-  if($row->class=='fixture'||$row->class=='report'){
+  if($row->class=='fixture'||$row->class=='report'||$row->class=='live'){
         if(sizeof($row->find('td'))>1){
                 $score = $row->find('td[class=match-score]',0);
                 $results[] = $score->find('span[class=team-home]',0)->plaintext;

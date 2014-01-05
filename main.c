@@ -37,7 +37,7 @@ char **_com_lines;
 int _num_lines=0;
 
 /* Thread timing constants (in ms) */
-#define SLEEP_UI 100
+#define SLEEP_UI 50
 #define SLEEP_DATA 10000
 
 /* Game struct and list*/
@@ -245,20 +245,18 @@ void loadGames()
  */
 void handleUI(WINDOW *win_com, WINDOW *win_games){
   int ch;
-  MEVENT m_event;
 
   /* Resize the windows if needed */
   if(_resize){
     struct winsize w;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
 
-    mvwin(win_com, 0, w.ws_col/3);
+    wresize(win_com,w.ws_row,(int)(w.ws_col*2.0/3));
+    wresize(win_games,w.ws_row, w.ws_col/3.0);
+    mvwin(win_com, 0, (int)(w.ws_col/3.0));
     mvwin(win_games, 0, 0);
-    wresize(win_com,w.ws_row, w.ws_col*2/3);
-    wresize(win_games,w.ws_row, w.ws_col/3);
-    endwin();
-    refresh();
 
+    endwin();
     _resize=0;
   }
 
@@ -275,26 +273,16 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
 
     /* Refresh windows*/
     box(win_com,0,0);
-    wrefresh(win_com);
+    wnoutrefresh(win_com);
     box(win_games,0,0);
-    wrefresh(win_games);
-    refresh();
+    wnoutrefresh(win_games);
+    doupdate();
   }
 
   /* Handle up/down keys */
   
   while( ERR != ( ch=getch() ) ){/*while there is a keypress to handle...*/
     switch(ch){
-
-    case KEY_MOUSE:
-      if(getmouse(&m_event)==OK)
-      {
-        if(m_event.bstate & BUTTON4_PRESSED) /*Scroll whell up*/
-          _start_line=_start_line==0?0:_start_line-1;
-        else if(m_event.bstate & BUTTON2_PRESSED) /*Scroll whell down*/
-          _start_line=_start_line+1;
-      }
-      break;
 
     case KEY_UP:
       _start_line=_start_line==0?0:_start_line-1;
