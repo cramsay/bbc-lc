@@ -22,12 +22,16 @@ int _MAX_Y, _MAX_X;
 /* String format constants */
 #define FMT_GAME "%s vs %s"
 
+/* Colour Pairs */
+#define C_STD 1
+#define C_HGLT 2
+
 /*Cross-thread variables needed between the UI and the data fetching*/
 volatile int _start_line=0; /*For commentary text scrolling*/
 volatile int _cur_game=0;
 volatile int _kill=0;
 volatile int _resize=0;
-volatile int _getting_data=0;
+volatile int _new_com_data=0;
 
 /*Commentary text buffer*/
 #define MAX_BUFF_LEN 1024
@@ -130,9 +134,8 @@ void getEvents()
 void *getEvents_thrd(void *arg){
   while(!_kill){
     WAIT_START();
-    _getting_data=1;
     getEvents();
-    _getting_data=0;
+    _new_com_data=1;
     WAIT_FOR(SLEEP_DATA);
   }
   return NULL;
@@ -152,12 +155,12 @@ void printCommentary(WINDOW *win_com)
 
     buf =  trim(_com_lines[line_no]);
     if(0==strcmp(buf,"EVENT_START\n")){
-      wattroff(win_com,COLOR_PAIR(1));
-      wattron(win_com,COLOR_PAIR(2));
+      wattroff(win_com,COLOR_PAIR(C_STD));
+      wattron(win_com,COLOR_PAIR(C_HGLT));
     }
     else if(0==strcmp( buf,"EVENT_END\n")){
-      wattron(win_com,COLOR_PAIR(1));
-      wattroff(win_com,COLOR_PAIR(2));
+      wattroff(win_com,COLOR_PAIR(C_HGLT));
+      wattron(win_com,COLOR_PAIR(C_STD));
     }
 
     else{
@@ -182,8 +185,8 @@ void printGamesList(WINDOW *win_games)
   for(i=0;i<_num_games;i++){
     
     if(i==hglt){
-      wattroff(win_games,COLOR_PAIR(1));
-      wattron(win_games,COLOR_PAIR(2));
+      wattroff(win_games,COLOR_PAIR(C_STD));
+      wattron(win_games,COLOR_PAIR(C_HGLT));
     }
 
     mvwprintw(win_games,y,x,FMT_GAME,
@@ -192,8 +195,8 @@ void printGamesList(WINDOW *win_games)
     y+=3;
 
     if(i==hglt){
-      wattron(win_games,COLOR_PAIR(1));
-      wattroff(win_games,COLOR_PAIR(2));
+      wattroff(win_games,COLOR_PAIR(C_HGLT));
+      wattron(win_games,COLOR_PAIR(C_STD));
     }
   }
 }
@@ -230,7 +233,6 @@ void loadGames()
     strcpy(_games[g_cnt].team_away, path);
     fgets(path, sizeof(path)-1, fp);
     strcpy(_games[g_cnt].game_id, path);
-    puts("gamedone");
     g_cnt++;
   }
   /* close */
@@ -251,7 +253,29 @@ void resize_w(WINDOW *win_com, WINDOW *win_games){
     mvwin(win_com, 0, (int)(w.ws_col/3.0));
     mvwin(win_games, 0, 0);
 
-    endwin();
+}
+
+/**
+ * Following refresh functions are to update each ncurses component
+ */
+void wbrefresh(WINDOW *win)
+{
+    box(win,0,0);
+    wnoutrefresh(win);
+}
+
+void update_com(WINDOW *win_com)
+{
+  wclear(win_com);
+  printCommentary(win_com);
+  wbrefresh(win_com);
+}
+
+void update_games(WINDOW *win_games)
+{
+  wclear(win_games);
+  printGamesList(win_games);
+  wbrefresh(win_games);
 }
 
 /**
@@ -259,25 +283,11 @@ void resize_w(WINDOW *win_com, WINDOW *win_games){
  * Calls all functions requried to update and handle the ncurses interface
  */
 void handleUI(WINDOW *win_com, WINDOW *win_games){
-  int ch;
+  int ch,refresh=0;
 
-  if(!_getting_data){
-    /* Clear windows */
-    wclear(win_games);
-    wclear(win_com);
-
-    /* Update commentary text */
-    printCommentary(win_com);
-
-    /* Update game list*/
-    printGamesList(win_games);
-
-    /* Refresh windows*/
-    box(win_com,0,0);
-    wnoutrefresh(win_com);
-    box(win_games,0,0);
-    wnoutrefresh(win_games);
-    doupdate();
+  if(_new_com_data){
+    refresh=1;
+    _new_com_data=0;
   }
 
   /* Handle up/down keys */
@@ -286,10 +296,12 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
 
     case KEY_UP:
       _start_line=_start_line==0?0:_start_line-1;
+      refresh=1;
       break;
 
     case KEY_DOWN:
       _start_line=_start_line+1;
+      refresh=1;
       break;
     
     case KEY_PPAGE:
@@ -297,6 +309,7 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
         _cur_game=_cur_game==0?_num_games-1:_cur_game-1;
       getEvents();
       _start_line=0;
+      refresh=1;
       break;
       
     case KEY_NPAGE:
@@ -304,10 +317,12 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
       _cur_game=_cur_game==_num_games?0:_cur_game;
       getEvents();
       _start_line=0;
+      refresh=1;
       break;
 
     case KEY_RESIZE: /* Resize windows */
       resize_w(win_com,win_games);
+      refresh=1;
       break;
 
     case 'q':
@@ -316,7 +331,13 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
           ,SLEEP_DATA/1000);
       break;
     }
+  }
 
+  /* Push window updates if needed */
+  if(refresh){
+    update_games(win_games);
+    update_com(win_com);
+    doupdate();
   }
 }
 
@@ -360,10 +381,10 @@ int main(int argc, char** argv)
 
   /* Setup colours */
   start_color();
-  init_pair(1,COLOR_BLUE,COLOR_BLACK);
-  init_pair(2,COLOR_GREEN,COLOR_BLACK);
-  wattron(win_com,COLOR_PAIR(1));
-  wattron(win_games,COLOR_PAIR(1));
+  init_pair(C_STD,COLOR_WHITE,COLOR_BLACK);
+  init_pair(C_HGLT,COLOR_GREEN,COLOR_BLACK);
+  wattron(win_com,COLOR_PAIR(C_STD));
+  wattron(win_games,COLOR_PAIR(C_STD));
  
   /*Start UI and data threads*/
   pthread_create(&thrd_data, NULL, getEvents_thrd, NULL);
