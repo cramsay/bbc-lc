@@ -1,8 +1,12 @@
 <?php 
 include("simple_html_dom.php");
 
+if($argc != 2){
+  exit(0);
+}
+
 // Create DOM from URL or file
-$html = file_get_html('http://www.bbc.co.uk/sport/shared/football/live-scores/matches/118996176/today');
+$html = file_get_html('http://www.bbc.co.uk/sport/shared/football/live-scores/matches/'.$argv[1].'/today');
 
 $results=array();
 

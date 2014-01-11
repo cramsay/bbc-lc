@@ -29,6 +29,7 @@ int _MAX_Y, _MAX_X;
 /*Cross-thread variables needed between the UI and the data fetching*/
 volatile int _start_line=0; /*For commentary text scrolling*/
 volatile int _cur_game=0;
+volatile int _cur_comp=0;
 volatile int _kill=0;
 volatile int _resize=0;
 volatile int _new_com_data=0;
@@ -52,6 +53,15 @@ typedef struct{
 }t_game;
 t_game *_games;
 int _num_games;
+
+/* Competition stuct*/
+#define MAX_COMP_LEN 140
+typedef struct{
+  char comp_name[MAX_TEAM_LEN];
+  int comp_id;
+}t_comp;
+t_comp *_comps;
+int _num_comps;
 
 /**
  * Description:
@@ -173,6 +183,34 @@ void printCommentary(WINDOW *win_com)
 
 /**
  * Description:
+ * Prints out the select list of competitions to the given
+ * ncurses window
+ */
+void printCompsList(WINDOW *win_comps)
+{
+  int i,x=1,y=1,hglt=_cur_comp;/*hglt is a snapshot of _cur_comp
+                                 Really don't want the highlighted game
+                                 changing mid-function call*/
+
+  for(i=0;i<_num_comps;i++){
+    
+    if(i==hglt){
+      wattroff(win_comps,COLOR_PAIR(C_STD));
+      wattron(win_comps,COLOR_PAIR(C_HGLT));
+    }
+
+    mvwprintw(win_comps,y,x,"%s",_comps[i].comp_name);
+    y++;
+
+    if(i==hglt){
+      wattroff(win_comps,COLOR_PAIR(C_HGLT));
+      wattron(win_comps,COLOR_PAIR(C_STD));
+    }
+  }
+}
+
+/**
+ * Description:
  * Prints out the select list of games to the given
  * ncurses window
  */
@@ -201,6 +239,43 @@ void printGamesList(WINDOW *win_games)
   }
 }
 
+
+/**
+ * Description:
+ * Populates a list of comp structs from the competitions.lst
+ */
+void loadComps()
+{
+
+  FILE *fp;
+  char path[1035];
+  int c_cnt=0;
+
+  /* Open the command for reading. */
+  fp = fopen("competitions.lst", "r");
+  if (fp == NULL) {
+    printf("Failed to find competitions.lst file\n" );
+    return;
+  }
+
+  /* Read the number of comp structs (first line of output) */
+  if(NULL == fgets(path, sizeof(path)-1, fp))
+    puts("Empty competitions.lst file");
+
+  sscanf(path,"%d",&_num_comps);
+  _comps=calloc(_num_comps,sizeof(t_comp));
+  /* Read the output a line at a time and store it in the buffer */
+  while (fgets(path, sizeof(path)-1, fp) != NULL){
+    sscanf(path,"%d",&(_comps[c_cnt].comp_id));
+    fgets(path, sizeof(path)-1, fp);
+    strcpy(_comps[c_cnt].comp_name, path);
+    c_cnt++;
+  }
+  /* close */
+  pclose(fp);
+
+}
+
 /**
  * Description:
  * Populates a list of game structs from the given competition
@@ -210,10 +285,12 @@ void loadGames()
 
   FILE *fp;
   char path[1035];
+  char cmd[1035];
   int g_cnt=0;
 
   /* Open the command for reading. */
-  fp = popen("php getGames.php", "r");
+  sprintf(cmd,"php getGames.php %d",_comps[_cur_comp].comp_id);
+  fp = popen(cmd, "r");
   if (fp == NULL) {
     printf("Failed to run getGames command\n" );
     return;
@@ -225,7 +302,6 @@ void loadGames()
 
   sscanf(path,"%d",&_num_games);
   _games=calloc(_num_games,sizeof(t_game));
-  printf("callocd %d",_num_games);
   /* Read the output a line at a time and store it in the buffer */
   while (fgets(path, sizeof(path)-1, fp) != NULL){
     strcpy(_games[g_cnt].team_home, path);
@@ -244,15 +320,16 @@ void loadGames()
  * Description:
  * Resizes the windows to fit a new terminal size
  */
-void resize_w(WINDOW *win_com, WINDOW *win_games){
+void resize_w(WINDOW *win_com, WINDOW *win_games, WINDOW *win_comps){
     struct winsize w;
     ioctl(STDOUT_FILENO, TIOCGWINSZ, &w);
 
     wresize(win_com,w.ws_row,(int)(w.ws_col*2.0/3));
-    wresize(win_games,w.ws_row, w.ws_col/3.0);
+    wresize(win_games,w.ws_row/2, w.ws_col/3.0);
+    wresize(win_comps,w.ws_row/2, w.ws_col/3.0);
     mvwin(win_com, 0, (int)(w.ws_col/3.0));
     mvwin(win_games, 0, 0);
-
+    mvwin(win_comps, w.ws_row/2, 0);
 }
 
 /**
@@ -278,11 +355,18 @@ void update_games(WINDOW *win_games)
   wbrefresh(win_games);
 }
 
+void update_comps(WINDOW *win_comps)
+{
+  wclear(win_comps);
+  printCompsList(win_comps);
+  wbrefresh(win_comps);
+}
+
 /**
  * Description:
  * Calls all functions requried to update and handle the ncurses interface
  */
-void handleUI(WINDOW *win_com, WINDOW *win_games){
+void handleUI(WINDOW *win_com, WINDOW *win_games, WINDOW *win_comps){
   int ch,refresh=0;
 
   if(_new_com_data){
@@ -320,8 +404,26 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
       refresh=1;
       break;
 
+    case 'w':
+      if(_num_comps)
+        _cur_comp=_cur_comp==0?_num_comps-1:_cur_comp-1;
+      loadGames();
+      getEvents();
+      _start_line=0;
+      refresh=1;
+      break;
+      
+    case 's':
+      _cur_comp++;
+      _cur_comp=_cur_comp==_num_comps?0:_cur_comp;
+      loadGames();
+      getEvents();
+      _start_line=0;
+      refresh=1;
+      break;
+
     case KEY_RESIZE: /* Resize windows */
-      resize_w(win_com,win_games);
+      resize_w(win_com,win_games,win_comps);
       refresh=1;
       break;
 
@@ -337,6 +439,7 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
   if(refresh){
     update_games(win_games);
     update_com(win_com);
+    update_comps(win_comps);
     doupdate();
   }
 }
@@ -349,10 +452,11 @@ void handleUI(WINDOW *win_com, WINDOW *win_games){
 void *handleUI_thrd(void *com){
   WINDOW *win_com=((WINDOW**)com)[0];
   WINDOW *win_games=((WINDOW**)com)[1];
+  WINDOW *win_comps=((WINDOW**)com)[2];
 
   while(!_kill){
     WAIT_START();
-    handleUI(win_com,win_games);
+    handleUI(win_com,win_games,win_comps);
     WAIT_FOR(SLEEP_UI);
   }
   return NULL;
@@ -361,9 +465,10 @@ void *handleUI_thrd(void *com){
 int main(int argc, char** argv)
 {
   pthread_t thrd_data,thrd_ui;
-  WINDOW *win_com, *win_games, *wins[2];
+  WINDOW *win_com, *win_games, *win_comps, *wins[3];
 
   _com_lines = calloc(MAX_BUFF_LEN, sizeof(char*) );
+  loadComps();
   loadGames();
 
   /*Ncurses init and config*/
@@ -376,8 +481,9 @@ int main(int argc, char** argv)
   /* Window inits */
   GET_MAX_WIN_SZ(stdscr);
   win_com = newwin(_MAX_Y, _MAX_X*2/3, 0, _MAX_X/3);
-  win_games = newwin(_MAX_Y, _MAX_X/3, 0, 0);
-  wins[0]=win_com;wins[1]=win_games;
+  win_games = newwin(_MAX_Y/2, _MAX_X/3, 0, 0);
+  win_comps = newwin(_MAX_Y/2, _MAX_X/3, _MAX_Y/2, 0);
+  wins[0]=win_com;wins[1]=win_games;wins[2]=win_comps;
 
   /* Setup colours */
   start_color();
