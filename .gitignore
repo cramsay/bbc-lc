@@ -22,3 +22,6 @@ bbclc
 *.exe
 *.out
 *.app
+
+# Other
+.fuse*
