@@ -1,18 +1,13 @@
-#include <iostream>
+#include "mainview.h"
+#include <QApplication>
 #include "commentarymodel.h"
-#include "competition.h"
-#include "cursesview.h"
-#include <vector>
 
-using namespace std;
-
-int main()
+int main(int argc, char *argv[])
 {
-    cout << "Grabbing games list from the web...\nPlease be patient!" << endl;
-    CommentaryModel c;
-    CursesView cv(&c);
+    CommentaryModel model;
+    QApplication a(argc, argv);
+    MainView w(0,&model);
+    w.show();
 
-    while(true);
-    return 0;
+    return a.exec();
 }
-
