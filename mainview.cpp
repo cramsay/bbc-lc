@@ -1,6 +1,9 @@
 #include "mainview.h"
 #include "ui_mainview.h"
 #include "commentarymodel.h"
+#include <QWebView>
+#include <QUrl>
+#include <unistd.h> //For getcwd()
 
 MainView::MainView(QWidget *parent, CommentaryModel* model) :
     QMainWindow(parent),
@@ -31,9 +34,11 @@ MainView::MainView(QWidget *parent, CommentaryModel* model) :
 
         if(itm->childCount()==0)
             itm->setDisabled(true);
+        itm->setExpanded(true);
 
         ui->treeGames->insertTopLevelItem(ui->treeGames->topLevelItemCount(),itm);
     }
+
 }
 
 MainView::~MainView()
@@ -68,5 +73,5 @@ void MainView::selectedGameChanged()
 
  void MainView::refreshObserver(){
     if(selectedGame)
-        ui->comText->setText(QString::fromStdString(selectedGame->get_events()));
+        ui->comView->setHtml(QString::fromStdString(selectedGame->get_events()));
 }

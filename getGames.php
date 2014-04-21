@@ -6,7 +6,7 @@ if($argc != 2){
 }
 
 // Create DOM from URL or file
-$html = file_get_html('http://www.bbc.co.uk/sport/shared/football/live-scores/matches/'.$argv[1].'/yesterday');
+$html = file_get_html('http://www.bbc.co.uk/sport/shared/football/live-scores/matches/'.$argv[1].'/today');
 
 $results=array();
 

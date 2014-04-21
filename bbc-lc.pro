@@ -4,7 +4,7 @@
 #
 #-------------------------------------------------
 
-QT       += core gui
+QT       += core gui webkitwidgets
 
 greaterThan(QT_MAJOR_VERSION, 4): QT += widgets
 
@@ -30,6 +30,7 @@ OTHER_FILES += \
     getGames.php \
     LICENSE \
     README.md \
-    simple_html_dom.php
+    simple_html_dom.php \
+    bbc.css
 
 QMAKE_CXXFLAGS += -std=c++11
